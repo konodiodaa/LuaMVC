@@ -1,0 +1,534 @@
+-- Tencent is pleased to support the open source community by making xLua available.
+-- Copyright (C) 2016 THL A29 Limited, a Tencent company. All rights reserved.
+-- Licensed under the MIT License (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at
+-- http://opensource.org/licenses/MIT
+-- Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
+
+local row = 4
+local col = 4
+local nodeGO = nil
+local boardSpriter = nil
+local blockGO = nil
+local btn = nil
+
+local Nodes = {}
+local Blocks = {}
+local emptyNodes = {}
+local gridOccupied = {}
+
+local duration = 0.2
+local timer = 0
+
+local GameState = {[0] = "GenerateLevel", [1] = "SpawningBlocks", [2] = "WaitingInput", [3] = "Moving", [4] = "Win", [5] = "Lose"  }
+local _state
+
+local isInitRound
+
+local score
+local streak
+local isMerged
+
+NumType = {
+	2,4,8,16,32,64,128,256,512,1024,2048
+}
+
+ColorType = {
+	[2] = CS.UnityEngine.Color(0.1,0.2,0.3),
+	[4] = CS.UnityEngine.Color(0.3,0.4,0.5),
+	[8] = CS.UnityEngine.Color(0.3,0.4,0.6),
+	[16] = CS.UnityEngine.Color(0.3,0.4,0.7),
+	[32] = CS.UnityEngine.Color(0.5,0.2,0.3),
+	[64] = CS.UnityEngine.Color(0.6,0.3,0.4),
+	[128] = CS.UnityEngine.Color(0.7,0.4,0.4),
+	[256] = CS.UnityEngine.Color(0.2,0.5,0.3),
+	[512] = CS.UnityEngine.Color(0.2,0.6,0.4),
+	[1024] = CS.UnityEngine.Color(0.4,0.7,0.4),
+	[2048] = CS.UnityEngine.Color(0.3,0.8,0.4),
+}
+
+function start()
+
+	print("lua start...")
+
+	score = 0
+	streak = 1
+	isMerged = false
+	CheckStreak()
+
+	nodeGO= Node
+	boardSpriter= Board:GetComponent(typeof(CS.UnityEngine.SpriteRenderer))
+	blockGO = Block
+
+	timer = duration
+	isInitRound = true
+
+	ReStartBTN:GetComponent("Button").onClick:AddListener(ReStart) 
+	ReStartBTN_GameOver:GetComponent("Button").onClick:AddListener(ReStart) 
+
+	ChangeState("GenerateLevel")
+end
+
+function update()
+	if _state == "WaitingInput" then
+		isMerged = false
+		if(CS.UnityEngine.Input.GetKeyDown(CS.UnityEngine.KeyCode.LeftArrow)) then
+			ShiftLeft()
+			CheckStreak()
+		elseif (CS.UnityEngine.Input.GetKeyDown(CS.UnityEngine.KeyCode.RightArrow)) then
+			ShiftRight()
+			CheckStreak()
+		elseif (CS.UnityEngine.Input.GetKeyDown(CS.UnityEngine.KeyCode.UpArrow)) then
+			ShiftUp()
+			CheckStreak()
+		elseif (CS.UnityEngine.Input.GetKeyDown(CS.UnityEngine.KeyCode.DownArrow)) then
+			ShiftDown()
+			CheckStreak()
+		end
+	elseif _state == "Moving" then
+		timer = timer - CS.UnityEngine.Time.deltaTime
+		if timer <= 0 then
+			ChangeState("SpawningBlocks")
+			timer = duration
+		end
+	end
+
+
+
+end
+
+function ChangeState(newState)
+	_state = newState
+
+	if(_state == "GenerateLevel") then
+		GenerateGrid()
+	elseif(_state == "SpawningBlocks") then
+		GenerateRandomBlocks()
+	elseif(_state == "WaitingInput") then
+
+	elseif(_state == "Moving") then
+	elseif(_state == "Win") then
+	elseif(_state == "Lose") then
+	end
+
+end
+
+function GenerateGrid()
+	for i = 0, 3, 1 do
+		for j = 0, 3 , 1 do
+			local node = CS.UnityEngine.GameObject.Instantiate(nodeGO,CS.UnityEngine.transform.position + CS.UnityEngine.Vector3(i ,j , 0.0),CS.UnityEngine.Quaternion.identity)
+			table.insert(Nodes,node)
+		end
+	end
+
+	local board = CS.UnityEngine.GameObject.Instantiate(boardSpriter,CS.UnityEngine.Vector3(row / 2 -0.5, col / 2 - 0.5,0.0),CS.UnityEngine.Quaternion.identity)
+	board.transform.localScale = CS.UnityEngine.Vector3(row + 0.1,col + 0.1,1.0)
+	
+	Load()
+end
+
+
+function GenerateRandomBlocks()
+
+	if #emptyNodes <= 0 then
+		Score_GameOver:GetComponent("Text").text = score
+		Text_GameOver:GetComponent("Text").text = 'Lose!!!'
+		GameOverPanel.gameObject:SetActive(true)
+		return 
+	end
+
+	local amount = 1
+	if isInitRound then
+		amount = 2
+		isInitRound = false
+	end
+	
+	for i = 1, amount, 1 do
+		local rand = math.random(1,#emptyNodes)
+		local blockIndex = emptyNodes[rand]
+		local x = (blockIndex -1) % row
+		local y = (blockIndex - 1) / row
+		
+		
+
+		local block = CS.UnityEngine.GameObject.Instantiate(blockGO,
+				CS.UnityEngine.Vector3(x,math.floor(y),0.0),
+				CS.UnityEngine.Quaternion.identity)
+		local blockScript = block:GetComponent("BlockScript")
+		
+		local randNum = NumType[math.random(1,2)]
+
+		blockScript.num = randNum
+		blockScript.numText.text = randNum
+		blockScript.sr.color = ColorType[randNum]
+		blockScript.ID = blockIndex
+
+		
+		table.insert(Blocks,block)
+		table.remove(emptyNodes,rand)
+		gridOccupied[blockIndex] = blockScript.ID
+	end
+
+
+	Save()
+	ChangeState("WaitingInput")
+end
+
+function RemoveElementInTable(tb,ele)
+	for i = 1, #tb, 1 do
+		if tb[i] == ele then
+			table.remove(tb,i)
+		end
+	end
+end
+
+function ShiftLeft()
+	table.sort(Blocks,function (a,b)
+		return a.transform.position.x < b.transform.position.x
+	end )
+
+	for k,v in pairs(Blocks) do
+		local curBlock = v
+		local y = curBlock.transform.position.y
+		local x = curBlock.transform.position.x
+
+		local index = col * y + x + 1
+		for j = col * y + 1, index - 1 , 1 do
+			if gridOccupied[j] == 0 then
+				local new_x = (j - 1) % col
+				RemoveElementInTable(emptyNodes,j)
+				curBlock:GetComponent("BlockScript").ID = j
+				gridOccupied[j] = j
+				curBlock.transform.position = CS.UnityEngine.Vector3(new_x,y,0)
+				gridOccupied[index] = 0
+				table.insert(emptyNodes,index)
+				if( j > 1 and (j - 1) % col ~= 0 and gridOccupied[j-1] ~= 0 ) then
+					local preBlock = BlockFinder(gridOccupied[j-1])
+					BlockMerge(preBlock,curBlock,j)
+				end
+				break
+			elseif j == index -1 and gridOccupied[j] ~= 0 then
+				local preBlock = BlockFinder(gridOccupied[j])
+				BlockMerge(preBlock,curBlock,index)
+				break
+			end
+		end
+	end
+
+	BlocksDeleter()
+	ChangeState("Moving")
+end
+
+function ShiftRight()
+	table.sort(Blocks,function (a,b)
+		return a.transform.position.x > b.transform.position.x
+	end )
+
+	for k,v in pairs(Blocks) do
+		local curBlock = v
+		local y = curBlock.transform.position.y
+		local x = curBlock.transform.position.x
+
+		local index = col * y + x + 1
+		for j = col * y + row, index + 1 , -1 do
+			if gridOccupied[j] == 0 then
+				local new_x = (j - 1) % col
+				RemoveElementInTable(emptyNodes,j)
+				curBlock:GetComponent("BlockScript").ID = j
+				gridOccupied[j] = j
+				curBlock.transform.position = CS.UnityEngine.Vector3(new_x,y,0)
+				gridOccupied[index] = 0
+				table.insert(emptyNodes,index)
+				if( j < row * col and j  % col ~= 0 and gridOccupied[j+1] ~= 0 ) then
+					local preBlock = BlockFinder(gridOccupied[j+1])
+					BlockMerge(preBlock,curBlock,j)
+				end
+				break
+			elseif j == index +1 and gridOccupied[j] ~= 0 then
+				local preBlock = BlockFinder(gridOccupied[j])
+				BlockMerge(preBlock,curBlock,index)
+				break
+			end
+		end
+	end
+
+	BlocksDeleter()
+	ChangeState("Moving")
+end
+
+function ShiftUp()
+	table.sort(Blocks,function (a,b)
+		return a.transform.position.y > b.transform.position.y
+	end )
+
+	for k,v in pairs(Blocks) do
+		local curBlock = v
+		local y = curBlock.transform.position.y
+		local x = curBlock.transform.position.x
+
+		local index = col * y + x + 1
+
+		for j = col * (row-1) + x + 1 , index + col , -col do
+			if gridOccupied[j] == 0 then
+				local new_y = math.floor( (j - 1) / col )
+				RemoveElementInTable(emptyNodes,j)
+				curBlock:GetComponent("BlockScript").ID = j
+				gridOccupied[j] = j
+				curBlock.transform.position = CS.UnityEngine.Vector3(x,new_y,0)
+				gridOccupied[index] = 0
+				table.insert(emptyNodes,index)
+				
+				if( j + col <= row * col and gridOccupied[j+col] ~= 0 ) then
+					local preBlock = BlockFinder(gridOccupied[j+col])
+					BlockMerge(preBlock,curBlock,j)
+				end
+				
+				break
+			elseif j == index + col and gridOccupied[j] ~= 0 then
+				local preBlock = BlockFinder(gridOccupied[j])
+				BlockMerge(preBlock,curBlock,index)
+				break
+			end
+		end
+	end
+
+	BlocksDeleter()
+	ChangeState("Moving")
+end
+
+function ShiftDown()
+	table.sort(Blocks,function (a,b)
+		return a.transform.position.y < b.transform.position.y
+	end )
+
+	for k,v in pairs(Blocks) do
+		local curBlock = v
+		local y = curBlock.transform.position.y
+		local x = curBlock.transform.position.x
+
+		local index = col * y + x + 1
+
+		for j = x + 1 , index - col , col do
+			if gridOccupied[j] == 0 then
+				local new_y = math.floor( (j - 1) / col )
+				RemoveElementInTable(emptyNodes,j)
+				curBlock:GetComponent("BlockScript").ID = j
+				gridOccupied[j] = j
+				curBlock.transform.position = CS.UnityEngine.Vector3(x,new_y,0)
+				gridOccupied[index] = 0
+				table.insert(emptyNodes,index)
+				
+				if( j - col >= 1 and gridOccupied[j - col] ~= 0 ) then
+					local preBlock = BlockFinder(gridOccupied[j - col])
+					BlockMerge(preBlock,curBlock,j)
+				end
+				
+				break
+			elseif j == index - col and gridOccupied[j] ~= 0 then
+				local preBlock = BlockFinder(gridOccupied[j])
+				BlockMerge(preBlock,curBlock,index)
+				break
+			end
+		end
+	end
+
+	BlocksDeleter()
+	ChangeState("Moving")
+end
+
+function BlockMerge(pre,cur,curIndex)
+	if(pre == nil or cur == nil) then
+		return
+	end 
+	local preScript = pre:GetComponent("BlockScript")
+	local curScript = cur:GetComponent("BlockScript")
+
+	if(preScript.num ~= curScript.num) then
+		return
+	end
+
+	preScript.num = preScript.num * 2
+	preScript.sr.color = ColorType[preScript.num]
+	preScript.numText.text = tostring(preScript.num)
+
+	table.insert(emptyNodes,curIndex)
+	gridOccupied[curIndex] = 0
+
+	
+	curScript.ID = -1
+
+	score = score + curScript.num * streak
+	Score:GetComponent("Text").text = score
+
+	if(curScript.num >= 1024) then
+		Score_GameOver:GetComponent("Text").text = score
+		Text_GameOver:GetComponent("Text").text = 'Win!!!'
+		GameOverPanel.gameObject:SetActive(true)
+	end
+
+	isMerged = true
+end
+
+function BlockFinder(blockID)
+	for i = 1, #Blocks, 1 do
+		if(blockID == Blocks[i]:GetComponent("BlockScript").ID) then
+			return Blocks[i]
+		end
+	end
+
+	return nil
+end
+
+function BlocksDeleter()
+
+	for i = #Blocks, 1, -1 do
+		local block = Blocks[i]
+		if block:GetComponent("BlockScript").ID == -1 then
+			table.remove(Blocks,i)
+			CS.UnityEngine.GameObject.Destroy(block)
+		end
+	end
+
+end
+
+function Save()
+	local file = io.open("gameFile.txt","w")
+	file:write(table.concat(emptyNodes, ",")..'\n')
+	file:write(table.concat(gridOccupied,",")..'\n')
+
+
+	local gridValue = {}
+	for i = 1, row * col, 1 do
+		gridValue[i] = 0
+	end
+
+	for k, v in pairs(Blocks) do
+		local blockScript = v:GetComponent("BlockScript")
+		gridValue[blockScript.ID] = blockScript.num
+	end
+
+	file:write(table.concat(gridValue,",")..'\n')
+	file:write(score..'\n')
+	file:write(streak)
+	file:close()
+end
+
+function Load()
+	local file = io.open("gameFile.txt","r")
+
+	if(file == nil) then
+		for i = 1, row * col , 1 do
+			score = 0
+			streak = 1
+			emptyNodes[i] = i
+			gridOccupied[i] = 0
+		end
+		ChangeState("SpawningBlocks")
+		return 
+	end
+
+	local emptyNodesStr = file:read()
+	local gridStr = file:read()
+	local valueStr = file:read()
+	local scoreStr = file:read()
+	local streakStr = file:read()
+
+	if emptyNodesStr == nil or gridStr == nil or scoreStr == nil or streak == nil then
+		for i = 1, row * col , 1 do
+			emptyNodes[i] = i
+			gridOccupied[i] = 0
+		end
+		ChangeState("SpawningBlocks")
+		return 
+	end
+
+	emptyNodes = {}
+
+	for node in emptyNodesStr:gmatch("[^,]+") do
+		table.insert(emptyNodes,tonumber(node))
+	end
+
+	gridOccupied = {}
+
+	for node in gridStr:gmatch("[^,]+") do
+		local blockID = tonumber(node)
+		table.insert(gridOccupied,blockID)
+	end
+
+	local gridValue = {}
+
+	for value in valueStr:gmatch("[^,]+") do
+		table.insert(gridValue,tonumber(value))
+	end
+
+
+	for i = 1,row * col,1 do
+		if gridOccupied[i] ~= 0 then
+			local x = (i -1) % row
+			local y = (i - 1) / row
+
+			local block = CS.UnityEngine.GameObject.Instantiate(blockGO,
+				CS.UnityEngine.Vector3(x,math.floor(y),0.0),CS.UnityEngine.Quaternion.identity)
+			local blockScript = block:GetComponent("BlockScript")
+	
+
+			local num = gridValue[gridOccupied[i]]
+			blockScript.num = num
+			blockScript.numText.text = num 
+			blockScript.sr.color = ColorType[num]
+			blockScript.ID = gridOccupied[i]
+
+			table.insert(Blocks,block)
+		end
+
+	end
+
+	score = tonumber(scoreStr)
+	Score:GetComponent("Text").text = score
+	
+	streak = tonumber(streakStr)
+	Streak:GetComponent("Text").text = "x "..streak
+	
+	isInitRound = false
+	ChangeState("WaitingInput")
+end
+
+function ReStart()
+
+	GameOverPanel.gameObject:SetActive(false)
+
+	score = 0
+	Score:GetComponent("Text").text = score
+
+	streak = 1
+	Streak:GetComponent("Text").text = "x "..streak
+
+	emptyNodes = {}
+	for i = 1, row * col, 1 do
+		table.insert(emptyNodes,i)
+		gridOccupied[i] = 0
+	end
+
+	local file = io.open("gameFile.txt","w")
+	file:write('')
+	file:close()
+
+	for i = #Blocks, 1,-1 do
+		local block = Blocks[i]
+		table.remove(Blocks,i)
+		CS.UnityEngine.GameObject.Destroy(block)
+	end
+
+	isInitRound = true
+
+	GenerateGrid()
+end
+
+function CheckStreak()
+	if(isMerged) then
+		streak = streak + 1
+		Streak:GetComponent("Text").text = "x "..streak
+	else
+		streak = 1
+		Streak:GetComponent("Text").text = "x "..streak
+	end
+end
